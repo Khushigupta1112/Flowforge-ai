@@ -44,7 +44,7 @@ export function buildFromElementModels(
   description: string,
   elements: ElementModel[],
 ): GeneratedWorkflow {
-  const created: SavedNode[] = elements.map((element, index) =>
+  const created: SavedNode[] = elements.map((element) =>
     createNode(element.type, element.position, element.config),
   );
   const edges: SavedEdge[] = [];

@@ -20,9 +20,7 @@ import { NODE_DEFINITION_MAP } from "@/lib/node-definitions";
 import { AI_MODELS, STRICTNESS_LEVELS, TONES, CONTENT_TYPES, LENGTHS, TEMPERATURE_RANGE } from "@/lib/node-definitions";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
 import {
-  FieldGroup,
   SelectField,
   SliderField,
   TextArea,
@@ -30,7 +28,7 @@ import {
 } from "@/components/ui/Form";
 import { useToast } from "@/components/ui/Toast";
 import type { QualityCheckResult } from "@/types/workflow";
-import { cn, formatDuration } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {

@@ -524,7 +524,7 @@ export function WorkflowProvider({
       void router.replace(`/builder?id=${newId}`, { scroll: false });
       return newId;
     },
-    [router],
+    [router, setWorkflowName, setDescription],
   );
 
   const openTemplate = useCallback(

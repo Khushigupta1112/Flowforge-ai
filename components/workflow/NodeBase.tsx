@@ -40,7 +40,6 @@ export interface NodeBaseProps {
 export function NodeBase({
   data,
   def,
-  selected,
   children,
   output,
 }: NodeBaseProps) {

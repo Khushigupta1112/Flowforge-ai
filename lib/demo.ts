@@ -1,23 +1,36 @@
 /**
  * Deterministic-ish mock responses used when no Gemini API key is present.
  * These exist so the entire product can be exercised without network or keys.
+ *
+ * CONTRACT: the mock generators receive only CLEAN content — either the actual
+ * upstream stage output (`context`) or a short derived `subject`. They never
+ * see (or echo) the instruction prompt that was sent to the model, so no
+ * prompts, node instructions, or system prompts can leak into generated content.
  */
+
+import { deriveSubject } from "@/lib/utils";
 
 const VARIATION_A = Math.floor(Math.random() * 2);
 
-function strongTopic(text: string): string {
-  const cleaned = text.trim().replace(/[.!?]+$/, "");
-  if (cleaned.length > 160) return `${cleaned.slice(0, 157)}...`;
-  return cleaned || "this topic";
+/**
+ * Reduce clean content to a quotable subject for natural demo copy.
+ * Falls back to a stable, neutral phrase so an empty input still produces
+ * clean (never echo-filled) content.
+ */
+function subjectOf(content: string | undefined, subject?: string): string {
+  if (subject && subject.trim() && subject.trim() !== "this topic") {
+    return subject.trim();
+  }
+  return deriveSubject(content ?? "") || "this topic";
 }
 
-export function mockResearch(topic: string): string {
-  const base = strongTopic(topic);
+export function mockResearch(content: string, subject?: string): string {
+  const topic = subjectOf(content, subject);
   return [
-    `AI RESEARCH BRIEF — "${base}"`,
+    `AI RESEARCH BRIEF — "${topic}"`,
     ``,
     `Key findings (AI-simulated):`,
-    `• Adoption is accelerating: organizations integrating AI into "${base}" report measurable efficiency gains within the first two quarters.`,
+    `• Adoption is accelerating: organizations integrating AI into "${topic}" report measurable efficiency gains within the first two quarters.`,
     `• The biggest lever is augmentation, not replacement — practitioners see the best results when models handle the repetitive middle of the work while humans own judgment and direction.`,
     `• Early movers differentiate on workflow design: connecting research → ideation → drafting → review in a single pipeline cuts turnaround time dramatically.`,
     `• Watch-outs: context quality gatekeeps output quality; a clear input brief outperforms prompt tweaking at inference time.`,
@@ -26,7 +39,7 @@ export function mockResearch(topic: string): string {
   ].join("\n");
 }
 
-export function mockIdeas(base: string, count: number): string {
+export function mockIdeas(content: string, count: number, subject?: string): string {
   const seeds = [
     "Impact-first framing that leads with a human story",
     "The contrarian take: flip the common assumption on its head",
@@ -37,21 +50,21 @@ export function mockIdeas(base: string, count: number): string {
     "An interview-style digest with voices from the field",
     "A beginner's on-ramp that assumes zero prior context",
   ];
-  const chosen = [...seeds].slice(0, Math.max(2, count));
-  const lines = chosen.map(
-    (seed, index) => `${index + 1}. ${seed} → for "${strongTopic(base)}"`,
-  );
-  return [`Distinct angles for: ${strongTopic(base)}`, "", ...lines].join("\n");
+  const topic = subjectOf(content, subject);
+  const chosen = [...seeds].slice(0, Math.max(2, Math.min(count || 4, 8)));
+  return chosen
+    .map((seed, index) => `${index + 1}. ${seed} — for "${topic}"`)
+    .join("\n");
 }
 
-function mockWriterCore(contentType: string, tone: string, base: string): string {
+function mockWriterCore(contentType: string, tone: string, topic: string): string {
   const hooks: Record<string, string> = {
-    "LinkedIn post": `I spent the last month watching "${base}" quietly change how teams work — and the shift is bigger than most people realize.`,
-    "Blog post": `Everyone is talking about ${strongTopic(base)}, but almost nobody is asking the question that actually matters.`,
-    "Product description": `Meet the tool that turns "${base}" from a workflow into a competitive advantage.`,
-    "YouTube script": `[HOOK] Most people are only using about 20% of what "${base}" can actually do. Today, we fix that. [CUT TO INTRO]`,
+    "LinkedIn post": `I spent the last month watching "${topic}" quietly change how teams work — and the shift is bigger than most people realize.`,
+    "Blog post": `Everyone is talking about ${topic}, but almost nobody is asking the question that actually matters.`,
+    "Product description": `Meet the tool that turns "${topic}" from a workflow into a competitive advantage.`,
+    "YouTube script": `[HOOK] Most people are only using about 20% of what "${topic}" can actually do. Today, we fix that. [CUT TO INTRO] Let's talk about ${topic}.`,
   };
-  const hook = hooks[contentType] ?? `Here is what you need to know about ${strongTopic(base)}.`;
+  const hook = hooks[contentType] ?? `Here is what you need to know about ${topic}.`;
 
   const bodies: Record<string, string> = {
     Short:
@@ -89,19 +102,34 @@ function lengthKey(contentType: string): "Short" | "Medium" | "Long" {
   return "Medium";
 }
 
-export function mockWrite(contentType: string, tone: string, length: string, base: string): string {
+export function mockWrite(
+  contentType: string,
+  tone: string,
+  length: string,
+  content: string,
+  subject?: string,
+): string {
   void length;
-  return mockWriterCore(contentType, tone, base);
+  return mockWriterCore(contentType, tone, subjectOf(content, subject));
 }
 
-export function mockRewrite(base: string, instructions: string): string {
-  return `REVISED VERSION\n\n${mockWriterCore("LinkedIn post", "Professional", base).slice(
+export function mockRewrite(
+  content: string,
+  instructions: string,
+  subject?: string,
+): string {
+  const topic = subjectOf(content, subject);
+  return `REVISED VERSION\n\n${mockWriterCore("YouTube script", "Professional", topic).slice(
     0,
     620,
   )}\n\n(Applied: ${instructions || "tighter, more direct copy."})`;
 }
 
-export function mockQualityCheck(base: string): string {
+export function mockQualityCheck(
+  content: string,
+  subject?: string,
+): string {
+  const topic = subjectOf(content, subject);
   const score = VARIATION_A === 0 ? 87 : 91;
   return JSON.stringify({
     score,
@@ -125,41 +153,75 @@ export function mockQualityCheck(base: string): string {
           "Cut the repeated idea to keep the post under 150 words.",
           "Write a pointed final line in the second person.",
         ],
-    improvedVersion: `${mockWriterCore("LinkedIn post", "Professional", base).replace(
-      "I spent the last month",
-      "Last month, I watched",
-    )}\n\n👉 What would you add?`,
+    improvedVersion:
+      `${mockWriterCore("YouTube script", "Enthusiastic", topic)}\n\nWhat would you add? Share it in the comments.`,
   });
 }
 
-export function mockAgentReply(systemPrompt: string, prompt: string): string {
-  const base = prompt || "the task";
-  if (/quality|score|grammar|issues|suggestions/i.test(systemPrompt + prompt)) {
-    return mockQualityCheck(base);
-  }
-  return [
-    `Here's my response to your request.`,
-    ``,
-    mockWriterCore("LinkedIn post", "Professional", base.slice(0, 120)).slice(0, 500),
-  ].join("\n");
+export function mockAgentReply(
+  systemPrompt: string,
+  prompt: string,
+  context?: string,
+  subject?: string,
+): string {
+  void systemPrompt;
+  void prompt;
+  const topic = subjectOf(context, subject);
+  return mockWriterCore("Auto-detect", "Professional", topic);
 }
 
-export function mockResultForPrompt(prompt: string, systemPrompt = ""): string {
-  const combined = `${systemPrompt}\n\n${prompt}`;
-  if (/quality|score|grammar|clarity|issues|suggestions/i.test(combined)) {
-    return mockQualityCheck(prompt);
+/**
+ * Route a mock response for a node based on the node type, detected from the
+ * node's SYSTEM prompt (its stable identity), with a keyword fallback for
+ * custom aiAgent nodes. Content is generated ONLY from clean `context`/`subject`;
+ * the user prompt is used purely for classification — never for content and
+ * never echoed back.
+ */
+export function mockResultForPrompt(
+  prompt: string,
+  systemPrompt = "",
+  context?: string,
+  subject?: string,
+): string {
+  const cleanContext = context?.trim() ? context : undefined;
+  const sys = (systemPrompt ?? "").toLowerCase();
+  const user = (prompt ?? "").toLowerCase();
+
+  // Built-in node types are identified by their system prompt so the mock
+  // can never be derailed by words in the upstream content.
+  if (sys.includes("quality checker") || sys.includes("meticulous editor")) {
+    return mockQualityCheck(cleanContext ?? "", subject);
+  }
+  if (sys.includes("senior editor")) {
+    return mockRewrite(cleanContext ?? "", "tighten and clarify", subject);
+  }
+  if (sys.includes("research assistant")) {
+    return mockResearch(cleanContext ?? "", subject);
+  }
+  if (sys.includes("creative strategist")) {
+    return mockIdeas(cleanContext ?? "", 4, subject);
+  }
+  if (sys.includes("expert copywriter")) {
+    return mockWrite("Auto-detect", "Professional", "Medium", cleanContext ?? "", subject);
+  }
+
+  // Custom aiAgent nodes (or any node with an unexpected system prompt):
+  // classify loosely from user text, still generating from clean content only.
+  const combined = `${sys}\n${user}`;
+  if (/quality|score|grammar|issues|suggestions/i.test(combined)) {
+    return mockQualityCheck(cleanContext ?? "", subject);
   }
   if (/idea|brainstorm|angle|hook|concept/i.test(combined)) {
-    return mockIdeas(prompt, 4);
+    return mockIdeas(cleanContext ?? "", 4, subject);
   }
-  if (/research|brief|summary|facts|context|findings/i.test(combined)) {
-    return mockResearch(prompt);
+  if (/research|brief|summary|facts|findings/i.test(combined)) {
+    return mockResearch(cleanContext ?? "", subject);
   }
-  if (/revise|rewrite|rewrite|improve|tighten|condense|rephrase/i.test(combined)) {
-    return mockRewrite(prompt, "tighten and clarify");
+  if (/revise|rewrite|improve|tighten|condense|rephrase/i.test(combined)) {
+    return mockRewrite(cleanContext ?? "", "tighten and clarify", subject);
   }
   if (/script|linkedin|blog|post|write|draft|email|description|copy/i.test(combined)) {
-    return mockWrite("Auto-detect", "Professional", "Medium", prompt);
+    return mockWrite("Auto-detect", "Professional", "Medium", cleanContext ?? "", subject);
   }
-  return mockAgentReply(systemPrompt, prompt);
+  return mockAgentReply(systemPrompt, prompt, cleanContext, subject);
 }

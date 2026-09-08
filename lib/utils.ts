@@ -45,3 +45,27 @@ export function uid(prefix: string): string {
     .toString(36)
     .slice(2, 8)}`;
 }
+
+/**
+ * Reduce any piece of clean content to a short, quotable subject line.
+ * Used ONLY to make generated demo content read naturally (topic references) —
+ * it is never used to assemble prompts or to sanitize model output.
+ */
+export function deriveSubject(content: string): string {
+  const lines = String(content ?? "")
+    .split(/\r?\n/)
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^[*•\-–—]\s+/, "")
+        .replace(/^\d+[.)]\s*/, ""),
+    )
+    .filter(Boolean);
+
+  let subject = lines[0]?.replace(/^"|"$/g, "").trim() || "";
+  if (!subject) return "this topic";
+
+  subject = subject.replace(/[.!?…]+$/, "").trim();
+  if (subject.length > 96) subject = `${subject.slice(0, 93).trimEnd()}...`;
+  return subject || "this topic";
+}

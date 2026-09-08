@@ -14,6 +14,10 @@ interface AIRequest {
   systemPrompt?: string;
   temperature?: number;
   model?: string;
+  /** Clean upstream content this node consumes (never the node's own instructions). */
+  context?: string;
+  /** Short subject propagated from the workflow's root input. */
+  subject?: string;
 }
 
 interface GeminiResponse {
@@ -39,7 +43,12 @@ export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json({
-      result: mockResultForPrompt(prompt, body.systemPrompt ?? ""),
+      result: mockResultForPrompt(
+        prompt,
+        body.systemPrompt ?? "",
+        body.context,
+        body.subject,
+      ),
       demoMode: true,
     });
   }
@@ -91,7 +100,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ result: textPart, demoMode: false });
   } catch (error) {
     return NextResponse.json({
-      result: mockResultForPrompt(prompt, body.systemPrompt ?? ""),
+      result: mockResultForPrompt(
+        prompt,
+        body.systemPrompt ?? "",
+        body.context,
+        body.subject,
+      ),
       demoMode: true,
       warning:
         error instanceof Error ? error.message : "Gemini request failed",

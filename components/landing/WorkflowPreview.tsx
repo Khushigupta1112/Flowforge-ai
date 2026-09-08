@@ -22,7 +22,6 @@ const NODE_H = 54;
 const GAP = 10;
 
 export function WorkflowPreview() {
-  const totalWidth = NODES.length * NODE_W + (NODES.length - 1) * GAP;
   const startX = PAD;
   const startY = (HEIGHT - NODE_H) / 2;
   const positions = NODES.map((_, index) => ({

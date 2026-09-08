@@ -51,7 +51,7 @@ export default function DashboardPage() {
     [router],
   );
 
-  const useTemplate = useCallback(
+  const applyTemplate = useCallback(
     (templateId: string) => {
       const snapshot = createFromTemplate(templateId);
       toast.success("Template ready", "Workflow opened in the builder.");
@@ -122,7 +122,7 @@ export default function DashboardPage() {
             <Layers className="size-4 text-[var(--color-ink-3)]" />
             <h2 className="text-[15px] font-semibold tracking-tight">Starter Templates</h2>
           </div>
-          <TemplateGrid onUse={(template) => useTemplate(template.id)} />
+          <TemplateGrid onUse={(template) => applyTemplate(template.id)} />
         </section>
 
         {/* workflows */}

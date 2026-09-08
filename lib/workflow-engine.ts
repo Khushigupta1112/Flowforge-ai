@@ -4,6 +4,7 @@ import type {
   SavedNode,
 } from "@/types/workflow";
 import { NODE_DEFINITION_MAP } from "@/lib/node-definitions";
+import { deriveSubject } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /* Public AI interface                                                 */
@@ -19,6 +20,10 @@ export interface PromptOptions {
   systemPrompt?: string;
   temperature?: number;
   model?: string;
+  /** Clean upstream content this node actually consumes (never the node's own instructions). */
+  context?: string;
+  /** Short, human-readable subject derived from the workflow's root input (for natural demo output). */
+  subject?: string;
 }
 
 export type AIFn = (options: PromptOptions) => Promise<AIReply>;
@@ -222,25 +227,35 @@ function collectContext(predecessorOutputs: string[]): string {
     .join("\n\n");
 }
 
-export function buildNodeRequest(
-  node: SavedNode,
-  previousOutputs: string[],
-): {
+export interface BuiltNodeRequest {
   prompt?: string;
   systemPrompt?: string;
   temperature?: number;
   model?: string;
   needsAI: boolean;
   directOutput?: string;
-} {
+  /** Clean upstream content this node actually consumes. */
+  context?: string;
+  /** Short subject propagated from the workflow's root input. */
+  subject?: string;
+  nodeLabel: string;
+}
+
+export function buildNodeRequest(
+  node: SavedNode,
+  previousOutputs: string[],
+  subject = "",
+): BuiltNodeRequest {
   const config = node.config;
   const context = collectContext(previousOutputs);
+  const label = labelFor(node);
 
   switch (node.type) {
     case "input": {
       return {
         needsAI: false,
         directOutput: (config as { input?: string }).input ?? "",
+        nodeLabel: label,
       };
     }
 
@@ -266,6 +281,9 @@ export function buildNodeRequest(
         systemPrompt: agentConfig.systemPrompt,
         temperature: agentConfig.temperature,
         model: agentConfig.model,
+        context,
+        subject,
+        nodeLabel: label,
       };
     }
 
@@ -288,6 +306,9 @@ export function buildNodeRequest(
           "You are a thorough research assistant. Produce a well-organized research brief with bullet points, clear sections, and practical takeaways. Do not claim real-time web search results.",
         temperature: 0.4,
         model: "gemini-2.5-flash",
+        context,
+        subject,
+        nodeLabel: label,
       };
     }
 
@@ -304,6 +325,9 @@ export function buildNodeRequest(
           "You are a creative strategist. Brainstorm original, distinct, and actionable ideas. Return a clean numbered list.",
         temperature: 0.9,
         model: "gemini-2.5-flash",
+        context,
+        subject,
+        nodeLabel: label,
       };
     }
 
@@ -326,9 +350,12 @@ export function buildNodeRequest(
             : "") +
           `\n\nOutput only the finished piece of content.`,
         systemPrompt:
-          "You are an expert copywriter. Match the requested content type, tone, and length precisely. Do not include meta commentary — output only the content itself.",
+          "You are an expert copywriter. Match the requested content type, tone, and length precisely. Do not include meta commentary — output only the content itself. Never repeat the source material verbatim. Never quote prompts or instructions back.",
         temperature: 0.8,
         model: "gemini-2.5-flash",
+        context,
+        subject,
+        nodeLabel: label,
       };
     }
 
@@ -343,9 +370,12 @@ export function buildNodeRequest(
               : "."
           }\n\nContent:\n${context}`,
         systemPrompt:
-          "You are a senior editor. Revise the provided content according to the instructions, preserving all key information and improving clarity and flow. Output only the revised content.",
+          "You are a senior editor. Revise the provided content according to the instructions, preserving all key information and improving clarity and flow. Output only the revised content. Never repeat prompts or instructions back.",
         temperature: 0.6,
         model: "gemini-2.5-flash",
+        context,
+        subject,
+        nodeLabel: label,
       };
     }
 
@@ -362,9 +392,12 @@ export function buildNodeRequest(
         prompt:
           `Evaluate the content below. Strictness: ${checkerConfig.strictness}. ${strictnessNote}\n\nContent:\n${context}`,
         systemPrompt:
-          'You are a meticulous editor and quality checker. Evaluate the content on grammar, clarity, relevance, engagement, and repetition. Respond with a single JSON object of shape: {"score": <number 0-100>, "issues": [<string>], "suggestions": [<string>], "improvedVersion": <string, full rewritten content>}. Output JSON only.',
+          'You are a meticulous editor and quality checker. Evaluate the content on grammar, clarity, relevance, engagement, and repetition. Respond with a single JSON object of shape: {"score": <number 0-100>, "issues": [<string>], "suggestions": [<string>], "improvedVersion": <string, the full rewritten content, and nothing else — no prompt text, no instruction text>}. Output JSON only.',
         temperature: 0.3,
         model: "gemini-2.5-flash",
+        context,
+        subject,
+        nodeLabel: label,
       };
     }
 
@@ -372,6 +405,7 @@ export function buildNodeRequest(
       return {
         needsAI: false,
         directOutput: context,
+        nodeLabel: label,
       };
     }
 
@@ -415,6 +449,73 @@ function parseQualityResult(raw: string): QualityCheckResult {
   return fallback;
 }
 
+/**
+ * Defensive normalization of what gets passed DOWNSTREAM from a node.
+ * - Plain text passes through untouched.
+ * - If a node returns a JSON object, only the generated-content field is passed
+ *   on (output / text / content / improvedVersion / result) so the next stage
+ *   never receives prompts, instructions, or workflow metadata.
+ * - Structured JSON with no content field is kept as-is (it is the intended output).
+ */
+export function extractPassableContent(raw: string): string {
+  const cleaned = typeof raw === "string" ? raw.trim() : "";
+  if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) return raw;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return raw;
+  }
+  if (Array.isArray(parsed) || typeof parsed !== "object" || parsed === null) {
+    return raw;
+  }
+
+  const record = parsed as Record<string, unknown>;
+  for (const key of ["output", "text", "content", "improvedVersion"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  if (typeof record.result === "string" && record.result.trim()) {
+    return record.result;
+  }
+  return raw;
+}
+
+/* ------------------------------------------------------------------ */
+/* Debug logging (opt-in via NEXT_PUBLIC_FLOWFORGE_DEBUG=1)            */
+/* ------------------------------------------------------------------ */
+
+function debugEnabled(): boolean {
+  try {
+    return process.env.NEXT_PUBLIC_FLOWFORGE_DEBUG === "1";
+  } catch {
+    return false;
+  }
+}
+
+function debugWorkflowStage(
+  label: string,
+  input: string | undefined,
+  prompt: string | undefined,
+  output: string,
+): void {
+  if (!debugEnabled()) return;
+  console.info(
+    `[flowforge] ${label}`,
+    JSON.stringify({
+      input: truncateForLog(input ?? ""),
+      prompt: truncateForLog(prompt ?? ""),
+      output: truncateForLog(output ?? ""),
+    }),
+  );
+}
+
+function truncateForLog(text: string, max = 240): string {
+  const single = text.replace(/\s+/g, " ").trim();
+  return single.length <= max ? single : `${single.slice(0, max - 3)}...`;
+}
+
 /* ------------------------------------------------------------------ */
 /* Execution runner                                                    */
 /* ------------------------------------------------------------------ */
@@ -452,6 +553,7 @@ export async function executeWorkflow(
   }
 
   const outputs = new Map<string, string>();
+  const subjects = new Map<string, string>();
   const incoming = new Map<string, string[]>();
   for (const id of nodes.map((n) => n.id)) incoming.set(id, []);
   for (const edge of edges) {
@@ -470,6 +572,16 @@ export async function executeWorkflow(
       .filter((output): output is string => typeof output === "string");
   };
 
+  /** The workflow's root subject propagates unchanged down the chain. */
+  const subjectOf = (node: SavedNode): string => {
+    const parentIds = incoming.get(node.id) ?? [];
+    for (const parentId of parentIds) {
+      const subject = subjects.get(parentId);
+      if (subject) return subject;
+    }
+    return "";
+  };
+
   try {
     for (const node of orderResult.order) {
       if (isCancelled?.()) break;
@@ -478,7 +590,11 @@ export async function executeWorkflow(
       const nodeStart = Date.now();
 
       try {
-        const request = buildNodeRequest(node, previousOutputsOf(node));
+        const request = buildNodeRequest(
+          node,
+          previousOutputsOf(node),
+          subjectOf(node),
+        );
 
         let output: string;
         if (!request.needsAI) {
@@ -489,21 +605,45 @@ export async function executeWorkflow(
             systemPrompt: request.systemPrompt,
             temperature: request.temperature,
             model: request.model,
+            context: request.context,
+            subject: request.subject,
           });
           sawDemoMode = sawDemoMode || reply.demoMode;
           output = reply.result;
         }
 
+        // Every node passes only clean generated content downstream.
+        let passable: string;
+        if (node.type === "qualityChecker") {
+          passable = parseQualityResult(output).improvedVersion;
+        } else {
+          passable = extractPassableContent(output);
+        }
+        outputs.set(node.id, passable || output);
+
+        // Propagate a natural subject so demo content reads cleanly.
+        const incomingSubject = subjectOf(node);
+        subjects.set(
+          node.id,
+          incomingSubject || deriveSubject(passable || output),
+        );
+
         const durationMs = Date.now() - nodeStart;
-        outputs.set(node.id, output);
 
         let qualityResult: QualityCheckResult | undefined;
         if (node.type === "qualityChecker") {
           qualityResult = parseQualityResult(output);
         }
 
+        debugWorkflowStage(
+          request.nodeLabel,
+          request.context,
+          request.prompt,
+          passable,
+        );
+
         callbacks.onCompleted(node.id, {
-          output,
+          output: passable || output,
           durationMs,
           qualityResult,
         });

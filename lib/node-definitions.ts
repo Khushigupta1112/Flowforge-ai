@@ -10,16 +10,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type {
-  AIAgentNodeConfig,
-  IdeaGeneratorNodeConfig,
-  InputNodeConfig,
-  OutputNodeConfig,
-  QualityCheckerNodeConfig,
-  ResearchNodeConfig,
-  RewriterNodeConfig,
   WorkflowNodeConfig,
   WorkflowNodeType,
-  WriterNodeConfig,
 } from "@/types/workflow";
 
 export interface NodeCategory {
@@ -47,8 +39,6 @@ export interface NodeDefinition {
   hasOutput: boolean;
   createConfig: () => WorkflowNodeConfig;
 }
-
-const pick = <V,>(value: V) => value;
 
 function defaultInputConfig(): WorkflowNodeConfig {
   return {

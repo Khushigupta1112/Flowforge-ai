@@ -167,7 +167,7 @@ export function ExecutionPanel() {
 
           {failedEntry && (
             <p className="mt-2 rounded-lg bg-rose-500/10 px-3 py-2 text-[11.5px] leading-relaxed text-rose-100/90 ring-1 ring-rose-500/15">
-              {failedEntry.nodeLabel} failed — check the node's inspector for details, then adjust and run again.
+              {failedEntry.nodeLabel} failed — check the node&apos;s inspector for details, then adjust and run again.
             </p>
           )}
 
